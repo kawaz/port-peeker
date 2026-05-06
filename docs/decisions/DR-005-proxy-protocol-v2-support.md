@@ -1,4 +1,4 @@
-# DR-0005: PROXY Protocol を内蔵サポート
+# DR-005: PROXY Protocol を内蔵サポート
 
 - ステータス: Accepted
 - 日付: 2026-05-07
@@ -41,7 +41,7 @@ http.Server.Serve(ln)
 - **メンテナンスの委譲**: PROXY Protocol は仕様自体は単純だが、コーナーケース (TLV 拡張, AF_UNSPEC, ヘッダの早期切断, ssl-info の TLV 等) を含めると実装維持コストが効いてくる。`go-proxyproto` は HAProxy 公式仕様の参照実装の 1 つで、メンテナンスが活発。自前で持たないことでこれらの面倒を移譲できる
 - **責務単一**: listener wrapper として閉じており、ハンドラ側のロジックには影響しない
 
-[DR-0003](0003-zero-dependency.md) (HTTP server / CLI コアは標準ライブラリのみ) との関係: 本ツールの判定ロジックや HTTP / CLI 部分は引き続きゼロ依存を維持する。listener レイヤーの周辺機能だけ「十分にメンテされた小さいライブラリは許容」という運用にする。
+[DR-003](DR-003-zero-dependency.md) (HTTP server / CLI コアは標準ライブラリのみ) との関係: 本ツールの判定ロジックや HTTP / CLI 部分は引き続きゼロ依存を維持する。listener レイヤーの周辺機能だけ「十分にメンテされた小さいライブラリは許容」という運用にする。
 
 ## Alternatives Considered
 

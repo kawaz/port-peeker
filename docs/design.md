@@ -2,7 +2,7 @@
 
 LB のヘルスチェックを HTTP で受けて、ホスト上のポート LISTEN 状態とプロセスの生存を確認して 200/503 を返すワンバイナリ HTTP サーバ。
 
-本書は現状の実装に即した設計書である。実装されていない将来機能は [roadmap.md](roadmap.md) を参照。重要な設計判断の経緯は [dr/](dr/) を参照。
+本書は現状の実装に即した設計書である。実装されていない将来機能は [roadmap.md](roadmap.md) を参照。重要な設計判断の経緯は [decisions/](decisions/) を参照。
 
 ## 1. 背景と目的
 
@@ -148,9 +148,9 @@ LB のヘルスチェックは秒単位で頻繁に来るため、毎回 `/proc`
 
 ### 4.1 言語と依存
 
-**Go** を採用。HTTP server / CLI / `/proc` パーサ / キャッシュ等のコアロジックは標準ライブラリのみ。PROXY Protocol サポートだけは [`github.com/pires/go-proxyproto`](https://github.com/pires/go-proxyproto) を利用 (詳細は §4.4 と [dr/0005-proxy-protocol-v2-support.md](dr/0005-proxy-protocol-v2-support.md))。`CGO_ENABLED=0` で純 Go バイナリとしてクロスビルド可能。
+**Go** を採用。HTTP server / CLI / `/proc` パーサ / キャッシュ等のコアロジックは標準ライブラリのみ。PROXY Protocol サポートだけは [`github.com/pires/go-proxyproto`](https://github.com/pires/go-proxyproto) を利用 (詳細は §4.4 と [decisions/DR-005-proxy-protocol-v2-support.md](decisions/DR-005-proxy-protocol-v2-support.md))。`CGO_ENABLED=0` で純 Go バイナリとしてクロスビルド可能。
 
-採用理由の詳細は [dr/0001-language-go.md](dr/0001-language-go.md) と [dr/0003-zero-dependency.md](dr/0003-zero-dependency.md) を参照。
+採用理由の詳細は [decisions/DR-001-language-go.md](decisions/DR-001-language-go.md) と [decisions/DR-003-zero-dependency.md](decisions/DR-003-zero-dependency.md) を参照。
 
 ### 4.2 ディレクトリ構成
 
@@ -205,7 +205,7 @@ func (c *Checker) Inspect(port int, wantProcesses bool) (Status, error)
 
 `NetFiles` と `ProcRoot` はテスト時に差し替え可能なフィールドとして公開している。
 
-詳細は [dr/0002-proc-direct-no-external-cmd.md](dr/0002-proc-direct-no-external-cmd.md)、[dr/0004-inspector-unified.md](dr/0004-inspector-unified.md) を参照。
+詳細は [decisions/DR-002-proc-direct-no-external-cmd.md](decisions/DR-002-proc-direct-no-external-cmd.md)、[decisions/DR-004-inspector-unified.md](decisions/DR-004-inspector-unified.md) を参照。
 
 #### `internal/cache/cache.go`
 
@@ -243,7 +243,7 @@ func Healthz(w http.ResponseWriter, _ *http.Request)
 
 ## 4.4 PROXY Protocol
 
-LB が PROXY Protocol を有効にしている場合、各 TCP 接続の先頭にクライアント情報を伝えるヘッダが付与される。port-peeker は [`github.com/pires/go-proxyproto`](https://github.com/pires/go-proxyproto) の `Listener` を経由して接続を受けることで v1/v2 ヘッダを自動検出して剥がし、実クライアント IP を `RemoteAddr()` に反映する。設定フラグは無く、無効化する手段も提供しない (詳細は [dr/0005-proxy-protocol-v2-support.md](dr/0005-proxy-protocol-v2-support.md))。
+LB が PROXY Protocol を有効にしている場合、各 TCP 接続の先頭にクライアント情報を伝えるヘッダが付与される。port-peeker は [`github.com/pires/go-proxyproto`](https://github.com/pires/go-proxyproto) の `Listener` を経由して接続を受けることで v1/v2 ヘッダを自動検出して剥がし、実クライアント IP を `RemoteAddr()` に反映する。設定フラグは無く、無効化する手段も提供しない (詳細は [decisions/DR-005-proxy-protocol-v2-support.md](decisions/DR-005-proxy-protocol-v2-support.md))。
 
 ライブラリの USE policy (デフォルト) を採用しているため:
 

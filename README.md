@@ -1,56 +1,58 @@
 # port-peeker
 
-LB のヘルスチェックを HTTP で受けて、ホスト上のポート LISTEN 状態とプロセスの生存を確認して 200/503 を返すワンバイナリ HTTP サーバ。
+English | [日本語](README.ja.md)
 
-`/proc` を直接読むため、対象サービスにヘルスチェック由来のログを発生させない。`ss` などの外部コマンドにも依存しない。
+A single-binary HTTP server that answers LB health probes by inspecting the host's TCP LISTEN state and the listening process. Returns 200/503/400 based on the query.
 
-## 使い方
+It reads `/proc` directly, so it does not generate connection logs against the target service and has no runtime dependency on tools like `ss`.
+
+## Usage
 
 ```sh
-# 起動
+# Start
 port-peeker --listen :24365
 
-# LB から:
+# From an LB (or curl):
 curl -s -o /dev/null -w '%{http_code}\n' \
   'http://127.0.0.1:24365/check?port=993&process=dovecot'
-# → 200 (LISTEN かつプロセス名一致) / 503 (それ以外) / 400 (パラメータ不正)
+# → 200 (LISTEN and process name matches) / 503 (otherwise) / 400 (bad params)
 ```
 
-## エンドポイント
+## Endpoints
 
-| Path | 用途 |
+| Path | Purpose |
 |---|---|
-| `GET /check?port=N[&process=NAME]` | ホスト上で port が LISTEN しているか（任意で process 名一致も）確認 |
-| `GET /healthz` | エージェント自身の死活確認（常に 200） |
+| `GET /check?port=N[&process=NAME]` | Verify that `port` is in LISTEN state (and optionally that the listening process name matches) |
+| `GET /healthz` | Liveness of the agent itself (always 200) |
 
-## オプション
+## Options
 
 ```
---listen ADDR         待ち受けアドレス (default ":24365")
---cache-ttl DURATION  チェック結果キャッシュの TTL; 0 で無効 (default 5s)
---version             バージョンを表示して終了
---help                ヘルプ表示
+--listen ADDR         listen address (default ":24365")
+--cache-ttl DURATION  TTL of /check result cache; 0 disables (default 5s)
+--version             print version and exit
+--help                show help
 ```
 
-引数なしで実行した場合も `--help` と同じ表示になる。
+Running without arguments prints the same help as `--help`.
 
-PROXY Protocol v1/v2 ヘッダは接続ごとに自動検出されるため、NLB の `proxy_protocol_v2 = ON` 経由でもプレーン HTTP でも追加設定なしで動作する。
+PROXY Protocol v1/v2 headers are auto-detected per connection, so `port-peeker` works behind an NLB with `proxy_protocol_v2 = ON`, behind HAProxy, or against direct plain HTTP probes — no flag to set.
 
-## 必要環境
+## Requirements
 
-- Linux (`/proc/net/tcp`, `/proc/net/tcp6`, `/proc/<pid>/fd`, `/proc/<pid>/comm` を読む)
-- 他人プロセスのプロセス名解決には対象プロセスと同 UID か root 権限が必要 (一般ユーザで起動した場合、自プロセス以外は `(none)` 扱いになる)
+- Linux (reads `/proc/net/tcp`, `/proc/net/tcp6`, `/proc/<pid>/fd`, `/proc/<pid>/comm`)
+- Resolving process names of other UIDs requires the same UID or root. When running as a regular user, processes owned by other users show up as `(none)` and `process=` matching falls back to a 503.
 
-## ビルド
+## Build
 
 ```sh
-just build           # ホスト向け
+just build           # host
 just build-linux     # Linux amd64 + arm64
 ```
 
-## systemd で常駐化
+## Run as a systemd service
 
-リポジトリ同梱の [`systemd/port-peeker.service`](systemd/port-peeker.service) を使う。
+Use the bundled [`systemd/port-peeker.service`](systemd/port-peeker.service):
 
 ```sh
 sudo install -m 755 bin/port-peeker-linux-arm64 /usr/local/bin/port-peeker
@@ -60,14 +62,14 @@ sudo systemctl enable --now port-peeker
 curl -s http://127.0.0.1:24365/healthz
 ```
 
-詳細は [docs/design.md §5.3](docs/design.md) を参照。
+See [docs/design.md §5.3](docs/design.md) for details.
 
-## ドキュメント
+## Documentation
 
-- [docs/design.md](docs/design.md) — 設計書
-- [docs/roadmap.md](docs/roadmap.md) — 将来計画
-- [docs/dr/](docs/dr/) — Design Record (重要な設計判断の記録)
+- [docs/design.md](docs/design.md) — Design document
+- [docs/roadmap.md](docs/roadmap.md) — Future work
+- [docs/decisions/](docs/decisions/) — Design Records (rationale of major decisions)
 
-## ライセンス
+## License
 
 MIT

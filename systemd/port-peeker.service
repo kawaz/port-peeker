@@ -1,17 +1,17 @@
 # port-peeker - HTTP healthcheck agent
 #
-# 配置例 (root で実行):
+# Install (run as root):
 #   install -m 755 bin/port-peeker-linux-arm64 /usr/local/bin/port-peeker
 #   install -m 644 systemd/port-peeker.service /etc/systemd/system/port-peeker.service
 #   systemctl daemon-reload
 #   systemctl enable --now port-peeker
 #   curl -s http://127.0.0.1:24365/healthz
 #
-# プロセス名解決 (?process=NAME) について:
-#   このサンプルは User=root で起動するため、全プロセスの /proc/<pid>/fd を
-#   読めて process= 指定が完全に動く。
-#   ?process= を使わず port LISTEN 判定のみで運用するなら、より安全な構成
-#   (DynamicUser=yes 案) を下のコメントに従って有効化することを推奨。
+# About process-name resolution (?process=NAME):
+#   This sample runs as User=root so that /proc/<pid>/fd is readable for every
+#   process and ?process=NAME works against any owner. If you do not need
+#   ?process=NAME (port LISTEN check only), switch to the safer
+#   DynamicUser=yes variant shown in the comments below.
 
 [Unit]
 Description=port-peeker - HTTP healthcheck agent
@@ -20,23 +20,22 @@ After=network.target
 
 [Service]
 Type=simple
-# PROXY Protocol v1/v2 は接続ごとに自動検出されるため、NLB の
-# proxy_protocol_v2=ON でもプレーン HTTP でも追加設定なしで動く。
 ExecStart=/usr/local/bin/port-peeker --listen :24365
 Restart=always
 RestartSec=5
 
-# プロセス名解決を含む全機能を使う構成 (デフォルト)
+# Default: full features including ?process=NAME resolution
 User=root
 
-# --- より安全な構成: port LISTEN 判定のみで運用する場合 ----------------------
-# 上の "User=root" を削除し、代わりに次の 2 行を有効化する:
+# --- Safer alternative: port LISTEN check only -------------------------------
+# Remove the "User=root" line above and enable these two lines instead:
 #User=
 #DynamicUser=yes
-# この場合 ?process=NAME は他ユーザーのプロセスを解決できず (none) 扱いになる。
+# In that case ?process=NAME falls back to (none) for processes owned by
+# other users.
 # ----------------------------------------------------------------------------
 
-# サンドボックス強化
+# Sandbox hardening
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes

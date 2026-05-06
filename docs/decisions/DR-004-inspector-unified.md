@@ -1,4 +1,4 @@
-# DR-0004: PortChecker と ProcessChecker を Inspector 1 個に統合
+# DR-004: PortChecker と ProcessChecker を Inspector 1 個に統合
 
 - ステータス: Accepted
 - 日付: 2026-05-06

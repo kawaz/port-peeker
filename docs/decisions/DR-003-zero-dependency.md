@@ -1,4 +1,4 @@
-# DR-0003: HTTP server / CLI ともに標準ライブラリのみを使用
+# DR-003: HTTP server / CLI ともに標準ライブラリのみを使用
 
 - ステータス: Accepted
 - 日付: 2026-05-06
