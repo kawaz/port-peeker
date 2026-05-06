@@ -41,3 +41,42 @@ ensure-clean:
 push: ensure-clean check test
     jj bookmark set main -r @-
     jj git push --bookmark main
+
+# リリース (bump: patch | minor | major)
+# 最新の v* tag から bump して @- に tag を打って origin に push する。
+# GitHub Actions の release.yml が tag を検出して linux/amd64 と linux/arm64
+# バイナリをビルドし GitHub Releases に添付する。
+release bump="patch": ensure-clean check test
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    git_dir="$(jj root)/../.git"
+    latest=$(git --git-dir="$git_dir" tag --list 'v*' --sort=-v:refname | head -1)
+    if [ -z "$latest" ]; then
+        new_tag="v0.1.0"
+        echo "First release: $new_tag"
+    else
+        IFS='.' read -r major minor patchv <<< "${latest#v}"
+        case "{{bump}}" in
+            major) major=$((major + 1)); minor=0; patchv=0 ;;
+            minor) minor=$((minor + 1)); patchv=0 ;;
+            patch) patchv=$((patchv + 1)) ;;
+            *) echo "Error: invalid bump '{{bump}}'" >&2; exit 1 ;;
+        esac
+        new_tag="v${major}.${minor}.${patchv}"
+        echo "Release: $latest -> $new_tag"
+    fi
+
+    # main bookmark を @- に進めて push (main commit を origin に反映)
+    jj bookmark set main -r @-
+    jj git push --bookmark main
+
+    # @- に tag を打って push (release.yml がここから走る)
+    jj tag set "$new_tag" -r @-
+    jj git export
+    git --git-dir="$git_dir" push origin "$new_tag"
+
+    # release.yml を watch
+    sleep 3
+    run_id=$(gh run list --repo kawaz/port-peeker --workflow=release.yml --limit 1 --json databaseId -q '.[0].databaseId')
+    gh run watch "$run_id" --repo kawaz/port-peeker
