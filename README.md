@@ -46,6 +46,26 @@ just build           # ホスト向け
 just build-linux     # Linux amd64 + arm64
 ```
 
+## systemd で常駐化
+
+リポジトリ同梱の [`systemd/port-peeker.service`](systemd/port-peeker.service) を使う。
+
+```sh
+sudo install -m 755 bin/port-peeker-linux-arm64 /usr/local/bin/port-peeker
+sudo install -m 644 systemd/port-peeker.service /etc/systemd/system/port-peeker.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now port-peeker
+curl -s http://127.0.0.1:24365/healthz
+```
+
+詳細は [docs/design.md §5.3](docs/design.md) を参照。
+
+## ドキュメント
+
+- [docs/design.md](docs/design.md) — 設計書
+- [docs/roadmap.md](docs/roadmap.md) — 将来計画
+- [docs/dr/](docs/dr/) — Design Record (重要な設計判断の記録)
+
 ## ライセンス
 
 MIT

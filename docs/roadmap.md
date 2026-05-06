@@ -1,0 +1,82 @@
+# port-peeker 将来計画
+
+MVP (現状の `/check?port=N[&process=NAME]` + `/healthz`) で意図的に切り落とした機能の整理。
+
+「Phase 1/2/3/4 という段階分けは MVP 完成後は使わない」。各項目の実施順は需要次第で、必要になった時点で個別に Issue / PR を切る。
+
+各項目は「目的」「実装案の概略」「現状不採用の理由 (あれば)」の形で記述する。
+
+## プロトコルチェック (`proto=tcp/tls/smtp/imap/pop3/http`)
+
+- **目的**: ポートが LISTEN しているだけでなく、プロトコルレベルで応答することを確認する。プロセスがハングして TCP は accept するが応答しない、といったケースを検出する。
+- **実装案**: `Inspector` のあとに `ProtoChecker` インターフェースを追加し、`proto` パラメータごとに軽量クライアントを実装する。
+  - `tcp`: `net.DialTimeout` で接続成立確認のみ
+  - `tls`: TLS ハンドシェイク完了 (証明書検証はオプション)
+  - `smtp`: 接続して `220` バナーを受け取り `QUIT`
+  - `imap`: 接続して `* OK ... ready` を受け取り `LOGOUT`
+  - `pop3`: 接続して `+OK ...` を受け取り `QUIT`
+  - `http`: `GET / HTTP/1.0` を送って何らかのレスポンスを受ける
+  - 各プロトコルのタイムアウトは 2 秒程度
+  - `host` パラメータでチェック先ホスト名を指定可能 (デフォルト `127.0.0.1`)
+- **現状不採用の理由**: MVP では「LISTEN 状態 + プロセス名一致」で多くのユースケースをカバーできるため。プロトコルチェックを入れるとヘルスチェック自体が対象サービスに接続することになり「サービスログを汚さない」という設計目的の一部が崩れる点も慎重に扱う必要がある (接続元を identifiable にしてログ側でフィルタする等の運用ガイドが必要)。
+
+## systemd unit チェック (`unit=NAME`)
+
+- **目的**: systemd unit が active であることを確認する。ポートは LISTEN していても unit が `failed` 状態に遷移しているケースを検出する。
+- **実装案**:
+  - 案 A: `systemctl is-active <unit>` を `os/exec` で呼ぶ。実装が単純。
+  - 案 B: D-Bus 経由で `org.freedesktop.systemd1.Unit.ActiveState` を取得する。`go-systemd/v22/dbus` を使えば外部コマンド不要。
+  - 案 A は外部コマンド依存になり [DR-0002](dr/0002-proc-direct-no-external-cmd.md) の方針と矛盾するため、案 B が望ましい。
+- **現状不採用の理由**: 依存追加 (`go-systemd`) を伴うため。LISTEN 状態確認だけで多くのケースをカバーできる現状では優先度が低い。
+
+## Loose モード (`?mode=loose`)
+
+- **目的**: port のチェックだけで 200 を返し、process / unit / proto は警告ログのみとする段階的導入用モード。
+- **実装案**: ハンドラで `mode` クエリを見て、各チェックの失敗を 503 ではなくログ出力に切り替える。
+- **現状不採用の理由**: MVP では process パラメータ自体オプショナルなので、用途的には「process パラメータを指定しない」で同等の意味になる。明示的な loose モードは将来 unit/proto 等が追加されたタイミングで必要になる。
+
+## `/metrics` Prometheus メトリクス
+
+- **目的**: チェック実行回数、成功/失敗回数、レスポンス時間などを Prometheus でスクレイプ可能にする。
+- **実装案**: `prometheus/client_golang` を導入し、ハンドラ計装と `/metrics` エンドポイントを追加。
+- **現状不採用の理由**: 依存追加と「LB ヘルスチェックは LB 側に成功率メトリクスがある」ため重複感がある。サービス側で port-peeker 自体のメトリクスが欲しくなった時に追加する。
+
+## 構造化ログ (JSON) と `--log-level`
+
+- **目的**: ログを集約基盤 (CloudWatch Logs Insights / Loki 等) で検索可能にする。
+- **実装案**: 標準ライブラリの `log/slog` を使い、`--log-level debug|info|warn|error` で制御。`--log-format text|json` も追加候補。
+- **現状不採用の理由**: 現状ログは起動時メッセージとシャットダウンメッセージくらいしかなく、構造化する意味が薄い。チェック結果ログを出すようになったら同時に対応する。
+
+## GitHub Releases によるバイナリ配布、`release` justfile タスク
+
+- **目的**: `just build-linux` で作るバイナリを GitHub Releases に貼る公式リリースフローを整備する。
+- **実装案**: kawaz の他リポ (`authsock-warden` 等) のリリースタスクを踏襲。
+  - `just release` で version bump → tag 作成 → push → GitHub Actions で各 OS/Arch のバイナリビルドして Release アセットに添付
+  - `cmd/port-peeker/main.go` の `version` 変数を `-ldflags "-X main.version=..."` で埋め込み
+  - tag 名は `vX.Y.Z` 形式
+- **現状不採用の理由**: MVP の動作確認段階。安定したら最初のリリースを切る。
+
+## RPM / DEB パッケージング
+
+- **目的**: Amazon Linux / RHEL / Debian / Ubuntu 系で `dnf install` / `apt install` 相当でセットアップ可能にする。
+- **実装案**: `nfpm` を使って GitHub Actions で rpm / deb を生成。systemd unit ファイルを同梱する。
+- **現状不採用の理由**: GitHub Releases バイナリ配布が先。需要があれば追加。
+
+## Docker イメージ
+
+- **目的**: コンテナ環境で port-peeker を動かすニーズに対応。
+- **実装案**: scratch ベースの Dockerfile (CGO 無効バイナリなのでシンプル)。
+- **現状不採用の理由**: コンテナ環境では `/proc/net/tcp` がコンテナ単位になるためホスト側のヘルスチェックには使えない (制約事項に明記済み)。コンテナ自身の self-check 用途の需要があれば作る。
+
+## `/healthz` の中身強化
+
+- **目的**: 現状常に 200 を返すだけだが、自身の最近のスキャン統計 (`/proc` 読み込みエラー率、レイテンシ等) を返して、port-peeker 自身の健全性を判断できるようにする。
+- **実装案**: 直近 N 件のリクエスト統計を持ち、JSON で返す。`Accept` ヘッダで text/JSON を切り替え。
+- **現状不採用の理由**: 「自分自身が応答できるか」のスモークテストとしては現状でも機能している。詳細統計が必要になったら `/metrics` と合わせて検討。
+
+## IPv6 への明示対応強化
+
+- **目的**: IPv6 のみで LISTEN しているサービスにも確実に対応する。
+- **現状**: `/proc/net/tcp6` は既に読んでいるため、IPv6 のみの LISTEN も検出可能。
+- **実装案**: 動作確認とドキュメント整備、必要なら `?family=v4|v6|both` のようなパラメータ追加。
+- **現状不採用の理由**: 動作はしているがテストが薄い。明示対応として強化したい場合の枠。

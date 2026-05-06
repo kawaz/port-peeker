@@ -1,0 +1,52 @@
+# port-peeker - HTTP healthcheck agent
+#
+# 配置例 (root で実行):
+#   install -m 755 bin/port-peeker-linux-arm64 /usr/local/bin/port-peeker
+#   install -m 644 systemd/port-peeker.service /etc/systemd/system/port-peeker.service
+#   systemctl daemon-reload
+#   systemctl enable --now port-peeker
+#   curl -s http://127.0.0.1:24365/healthz
+#
+# プロセス名解決 (?process=NAME) について:
+#   このサンプルは User=root で起動するため、全プロセスの /proc/<pid>/fd を
+#   読めて process= 指定が完全に動く。
+#   ?process= を使わず port LISTEN 判定のみで運用するなら、より安全な構成
+#   (DynamicUser=yes 案) を下のコメントに従って有効化することを推奨。
+
+[Unit]
+Description=port-peeker - HTTP healthcheck agent
+Documentation=https://github.com/kawaz/port-peeker
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/port-peeker --listen :24365
+Restart=always
+RestartSec=5
+
+# プロセス名解決を含む全機能を使う構成 (デフォルト)
+User=root
+
+# --- より安全な構成: port LISTEN 判定のみで運用する場合 ----------------------
+# 上の "User=root" を削除し、代わりに次の 2 行を有効化する:
+#User=
+#DynamicUser=yes
+# この場合 ?process=NAME は他ユーザーのプロセスを解決できず (none) 扱いになる。
+# ----------------------------------------------------------------------------
+
+# サンドボックス強化
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
