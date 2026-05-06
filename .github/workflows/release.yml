@@ -2,13 +2,56 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+    paths:
+      - "VERSION"
 
 permissions:
   contents: write
 
 jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.current }}
+      changed: ${{ steps.version.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check version change
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          CURRENT_VERSION=$(cat VERSION | tr -d '[:space:]')
+          echo "current=${CURRENT_VERSION}" >> "$GITHUB_OUTPUT"
+
+          # VERSION=0.0.0 はプレースホルダとしてスキップ
+          if [ -z "$CURRENT_VERSION" ] || [ "$CURRENT_VERSION" = "0.0.0" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Placeholder version (${CURRENT_VERSION:-empty}); skipping release."
+            exit 0
+          fi
+
+          # semver 形式の検証
+          if ! echo "$CURRENT_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Invalid VERSION format: ${CURRENT_VERSION}"
+            exit 1
+          fi
+
+          # 既にリリース済みかチェック
+          if gh release view "v${CURRENT_VERSION}" --repo "$REPO" >/dev/null 2>&1; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Version unchanged: v${CURRENT_VERSION} already released"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "New version detected: v${CURRENT_VERSION}"
+          fi
+
   build:
+    needs: check-version
+    if: needs.check-version.outputs.changed == 'true'
     strategy:
       matrix:
         include:
@@ -30,10 +73,10 @@ jobs:
           CGO_ENABLED: "0"
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-          TAG_NAME: ${{ github.ref_name }}
+          VERSION: ${{ needs.check-version.outputs.version }}
         run: |
           go build -trimpath \
-            -ldflags "-s -w -X main.version=${TAG_NAME}" \
+            -ldflags "-s -w -X main.version=v${VERSION}" \
             -o "port-peeker-${GOOS}-${GOARCH}" \
             ./cmd/port-peeker
 
@@ -43,21 +86,25 @@ jobs:
           path: port-peeker-${{ matrix.goos }}-${{ matrix.goarch }}
 
   release:
-    needs: build
+    needs: [check-version, build]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v5
         with:
           merge-multiple: true
 
-      - name: Create release
+      - name: Create release with tag
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ github.ref_name }}
+          VERSION: ${{ needs.check-version.outputs.version }}
+          COMMIT_SHA: ${{ github.sha }}
           REPO: ${{ github.repository }}
         run: |
-          gh release create "$TAG_NAME" \
+          gh release create "v${VERSION}" \
             --repo "$REPO" \
-            --title "$TAG_NAME" \
+            --title "v${VERSION}" \
+            --target "$COMMIT_SHA" \
             --generate-notes \
             port-peeker-linux-*
