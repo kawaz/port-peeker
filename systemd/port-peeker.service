@@ -20,6 +20,8 @@ After=network.target
 
 [Service]
 Type=simple
+# PROXY Protocol v1/v2 は接続ごとに自動検出されるため、NLB の
+# proxy_protocol_v2=ON でもプレーン HTTP でも追加設定なしで動く。
 ExecStart=/usr/local/bin/port-peeker --listen :24365
 Restart=always
 RestartSec=5

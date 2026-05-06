@@ -34,6 +34,8 @@ curl -s -o /dev/null -w '%{http_code}\n' \
 
 引数なしで実行した場合も `--help` と同じ表示になる。
 
+PROXY Protocol v1/v2 ヘッダは接続ごとに自動検出されるため、NLB の `proxy_protocol_v2 = ON` 経由でもプレーン HTTP でも追加設定なしで動作する。
+
 ## 必要環境
 
 - Linux (`/proc/net/tcp`, `/proc/net/tcp6`, `/proc/<pid>/fd`, `/proc/<pid>/comm` を読む)

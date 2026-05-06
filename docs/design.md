@@ -77,6 +77,8 @@ Options:
   --help                ヘルプを表示して終了
 ```
 
+PROXY Protocol v1/v2 ヘッダは接続ごとに自動検出される (フラグ不要、§4.4 参照)。
+
 引数なしで実行した場合は `--help` と同じヘルプ表示で終了する。
 
 複数サービスを使い分ける場合は LB 側のヘルスチェックパスで `/check?port=...` を細かく指定する。
@@ -146,7 +148,7 @@ LB のヘルスチェックは秒単位で頻繁に来るため、毎回 `/proc`
 
 ### 4.1 言語と依存
 
-**Go** を採用。標準ライブラリのみ。外部依存ゼロ。`CGO_ENABLED=0` で純 Go バイナリとしてクロスビルド可能。
+**Go** を採用。HTTP server / CLI / `/proc` パーサ / キャッシュ等のコアロジックは標準ライブラリのみ。PROXY Protocol サポートだけは [`github.com/pires/go-proxyproto`](https://github.com/pires/go-proxyproto) を利用 (詳細は §4.4 と [dr/0005-proxy-protocol-v2-support.md](dr/0005-proxy-protocol-v2-support.md))。`CGO_ENABLED=0` で純 Go バイナリとしてクロスビルド可能。
 
 採用理由の詳細は [dr/0001-language-go.md](dr/0001-language-go.md) と [dr/0003-zero-dependency.md](dr/0003-zero-dependency.md) を参照。
 
@@ -239,6 +241,19 @@ func Healthz(w http.ResponseWriter, _ *http.Request)
 
 ハンドラは `Inspector` インターフェース越しに `Checker` を呼ぶ (テスト容易性のため)。クエリパラメータ検証 → キャッシュ参照 → `Inspect` → 結果判定 → キャッシュ保存 → 応答書き込み、の流れ。
 
+## 4.4 PROXY Protocol
+
+LB が PROXY Protocol を有効にしている場合、各 TCP 接続の先頭にクライアント情報を伝えるヘッダが付与される。port-peeker は [`github.com/pires/go-proxyproto`](https://github.com/pires/go-proxyproto) の `Listener` を経由して接続を受けることで v1/v2 ヘッダを自動検出して剥がし、実クライアント IP を `RemoteAddr()` に反映する。設定フラグは無く、無効化する手段も提供しない (詳細は [dr/0005-proxy-protocol-v2-support.md](dr/0005-proxy-protocol-v2-support.md))。
+
+ライブラリの USE policy (デフォルト) を採用しているため:
+
+- v1 (テキスト) と v2 (バイナリ) の両方を自動検出
+- TCP/IPv4 と TCP/IPv6 の PROXY コマンドをパースして addr を反映
+- v2 LOCAL コマンドや v1 `UNKNOWN` はヘッダだけ消費して原 RemoteAddr を保持
+- ヘッダが無い接続は素の TCP としてそのまま通過
+
+`cmd/port-peeker/main.go` が `&proxyproto.Listener{Listener: rawLn}` を `http.Server.Serve` に渡すだけ。
+
 ## 5. デプロイ
 
 ### 5.1 ビルド
@@ -287,6 +302,8 @@ journalctl -u port-peeker -f
 ```
 
 unit ファイルのデフォルトは `User=root` で全機能 (process 名解決を含む) が動く構成。`?process=NAME` を使わず port LISTEN 判定のみで運用する場合は `DynamicUser=yes` に切り替えることでサンドボックスを強化できる (具体的な切替方法は unit ファイル内のコメント参照)。
+
+PROXY Protocol v1/v2 は自動検出されるため、NLB の `proxy_protocol_v2 = ON` でもプレーン HTTP でも追加設定なしでそのまま動く。
 
 サンドボックス指定 (`NoNewPrivileges` / `ProtectSystem=strict` / `ProtectHome` / `ProtectKernelTunables` / `MemoryDenyWriteExecute` 等) はデフォルトで有効。port-peeker は `/proc` を読み HTTP を返すだけなので、これらを有効にしても動作に支障はない。
 

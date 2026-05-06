@@ -9,11 +9,14 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	proxyproto "github.com/pires/go-proxyproto"
 
 	"github.com/kawaz/port-peeker/internal/cache"
 	"github.com/kawaz/port-peeker/internal/checker"
@@ -35,6 +38,9 @@ func printUsage() {
 	fmt.Fprintln(out, `  --cache-ttl DURATION  cache TTL for /check results; 0 disables [default 5s]`)
 	fmt.Fprintln(out, "  --version             print version and exit")
 	fmt.Fprintln(out, "  --help                show this help and exit")
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "PROXY Protocol v1/v2 headers are auto-detected per connection,")
+	fmt.Fprintln(out, "so the same listener works behind a PROXY-emitting LB and for direct probes.")
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Endpoints:")
 	fmt.Fprintln(out, "  GET /check?port=N[&process=NAME]   200 if listening (and process matches when given)")
@@ -65,16 +71,23 @@ func main() {
 	mux.Handle("/check", &handler.Check{Insp: chk, Cache: cch})
 	mux.HandleFunc("/healthz", handler.Healthz)
 
+	rawLn, err := net.Listen("tcp", *listen)
+	if err != nil {
+		log.Fatalf("listen: %v", err)
+	}
+	// PROXY Protocol v1/v2 を自動検出 (USE policy: ヘッダ有→剥がす、無→素TCP)
+	ln := &proxyproto.Listener{Listener: rawLn}
+
 	srv := &http.Server{
-		Addr:              *listen,
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Printf("port-peeker %s listening on %s (cache-ttl=%s)", version, *listen, *cacheTTL)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Printf("port-peeker %s listening on %s (cache-ttl=%s)",
+			version, *listen, *cacheTTL)
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
 		close(errCh)
@@ -88,7 +101,7 @@ func main() {
 		log.Printf("received %s, shutting down", s)
 	case err := <-errCh:
 		if err != nil {
-			log.Fatalf("listen: %v", err)
+			log.Fatalf("serve: %v", err)
 		}
 		return
 	}
