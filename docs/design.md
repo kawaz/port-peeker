@@ -307,7 +307,31 @@ PROXY Protocol v1/v2 は自動検出されるため、NLB の `proxy_protocol_v2
 
 サンドボックス指定 (`NoNewPrivileges` / `ProtectSystem=strict` / `ProtectHome` / `ProtectKernelTunables` / `MemoryDenyWriteExecute` 等) はデフォルトで有効。port-peeker は `/proc` を読み HTTP を返すだけなので、これらを有効にしても動作に支障はない。
 
-### 5.4 LB 設定例
+### 5.4 運用例: メールサーバを NLB 配下で動かす場合
+
+port-peeker が実際に解こうとしている問題のひとつが、Postfix + Dovecot 構成のメールサーバを AWS NLB 配下に置いたときの**ヘルスチェック由来のログノイズ**である (発端と判断の経緯は [decisions/DR-006-host-agent-over-per-service-listeners.md](decisions/DR-006-host-agent-over-per-service-listeners.md) を参照)。
+
+NLB のターゲットグループ属性で **`target port = 実サービスポート` / `health check port = 24365` (port-peeker) / `path = /check?port=PORT&process=NAME`** にオーバーライドする構成にすると:
+
+- ヘルスチェックは port-peeker (`:24365`) のみが受ける
+- port-peeker は `/proc/net/tcp{,6}` を読むだけで実サービス (110/143/993/995/25/...) に TCP 接続しない
+- → Dovecot の `pop3-login: ... no auth attempts in 0 secs` や Postfix postscreen の繰り返しログが**そもそも発生しない**
+
+ターゲットグループ毎のパス例:
+
+| サービス | target port | health check path |
+|---|---|---|
+| smtp | 25 | `/check?port=25&process=master` |
+| smtps | 465 | `/check?port=465&process=master` |
+| submission | 587 | `/check?port=587&process=master` |
+| imap | 143 | `/check?port=143&process=dovecot` |
+| imaps | 993 | `/check?port=993&process=dovecot` |
+| pop3 | 110 | `/check?port=110&process=dovecot` |
+| pop3s | 995 | `/check?port=995&process=dovecot` |
+
+NLB の `proxy_protocol_v2 = ON` を有効にしたままでも port-peeker は v1/v2 ヘッダを自動検出するため、ヘルスチェック設定とサービス側の Proxy Protocol 設定を同期させる必要はない (NLB 設定変更だけで完結する)。
+
+### 5.5 LB 設定例
 
 ALB / NLB ターゲットグループのヘルスチェック:
 
@@ -360,6 +384,7 @@ ALB / NLB ターゲットグループのヘルスチェック:
 - ログは標準出力 / 標準エラーに出す (journald は `Type=simple` で標準出力を捕捉)
 - バージョン情報を `--version` で表示
 - ヘルプを `--help` および引数なし起動で表示
+- Amazon Linux 2023 など `rsyslog` が既定でインストールされない環境では、port-peeker のログは `journalctl -u port-peeker` でのみ参照する前提。`/var/log/maillog` 等の rsyslog 経路ファイルへの依存は持たない
 
 ## 7. 既存ツールとの比較
 
